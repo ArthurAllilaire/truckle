@@ -6,7 +6,7 @@ from datetime import date
 DATABASE = "data.sqlite"
 def createDatabase(file: str):
     """
-    Limited to one delivery per day right now, but can change to datetime to increasee to more
+    Limited to one delivery per day right now, but can change to date to increasee to more
     """
     # open a SQLite connection
     # a database file called data.db will be created,
@@ -18,7 +18,7 @@ def createDatabase(file: str):
     CREATE TABLE IF NOT EXISTS delivery (
         driverNum BIGINT,
         weight SMALLINT NOT NULL,
-        date DATE NOT NULL,
+        date DATETIME NOT NULL,
         location TEXT NOT NULL,
         PRIMARY KEY (date, driverNum)
     );
@@ -33,9 +33,18 @@ def createDatabase(file: str):
         PRIMARY KEY (date, driverNum, farmerNum)
     );
     """
+    people_schema = """
+    CREATE TABLE IF NOT EXISTS people(
+        phoneNum BIGINT,
+        activity SMALLINT,
+        status SMALLINT,
+        PRIMARY KEY (phoneNum)
+    );
+    """
     with con:
         con.execute(farmer_schema)
         con.execute(delivery_schema)
+        con.execute(people_schema)
         # con.execute(driver_schema)
 
 def addData(file: str, type: str, date: date, weight: int, phoneNum: int, location: str, driverNum: int = 0):
@@ -65,7 +74,7 @@ def addData(file: str, type: str, date: date, weight: int, phoneNum: int, locati
             con.execute(insert_query, (phoneNum, weight, date.isoformat(), location, driverNum))
             return True
 
-def getDrivers(file: str, date: date, weight: int):
+def get_deliveries(date: date, weight: int = 1):
     """
     Returns an array of driverPhone, location etc.
     """
@@ -89,13 +98,57 @@ def getDrivers(file: str, date: date, weight: int):
     HAVING
         capacity >= ?;
     """
-    con = sqlite3.connect(file)
+    con = sqlite3.connect(DATABASE)
     with con:
         result = con.execute(getDrivers, (date.isoformat(), weight))
         #Field names plus rows
         return ([i[0] for i in result.description], result.fetchall())
 
+def set_activity(phone_num, new_activity: int = 0, state: int = 0) -> int:
+    """
+    Defaults state to 0
+    """
+    con = sqlite3.connect(DATABASE)
+    with con:
+        insert_query = """
+            INSERT INTO people(phoneNum, activity, status)
+            VALUES (?, ?, ?);
+            """
+        con.execute(insert_query, (phone_num, new_activity, state))
+        return new_activity
     
+def update_activity(phone_num, new_activity: int) -> int:
+    con = sqlite3.connect(DATABASE)
+    with con:
+        update_query = """
+            UPDATE people
+            SET activity = ?
+            WHERE phoneNum = ?;
+        """
+        con.execute(update_query, (new_activity, phone_num))
+        return new_activity
+
+def update_status(phone_num, new_status: int) -> int:
+    con = sqlite3.connect(DATABASE)
+    with con:
+        update_query = """
+            UPDATE people
+            SET status = ?
+            WHERE phoneNum = ?;
+        """
+        con.execute(update_query, (new_status, phone_num))
+        return new_status
+    
+
+def get_person(phone_num: int) -> list[int, int]:
+    con = sqlite3.connect(DATABASE)
+    with con:
+        res = con.execute(f'SELECT * FROM people WHERE phoneNum = {phone_num}').fetchall()
+        if (len(res) == 0):
+            return [None, None]
+        else:
+            print(res)
+            return res[0][1], res[0][2]
 
 def getTable(file: str, tName: str):
     """
@@ -115,8 +168,12 @@ if __name__ == "__main__":
     addData(DATABASE, "driver", date.today(), 200, 7752715719, "Street 15")
     addData(DATABASE, "driver", date.today(), 200, 8890123412, "Street 16")
     addData(DATABASE, "farmer", date.today(), 50, 123456789, "Street 2", 7752715719)
+    
     print(getTable(DATABASE, "farmers"))
-    print(getDrivers(DATABASE, date.today(), 20))
+    print(get_deliveries(DATABASE, date.today(), 20))
+
+
+
 #
 # Querying the database
 #
