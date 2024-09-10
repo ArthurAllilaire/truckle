@@ -105,8 +105,11 @@ def process_pickup(phone_num: int, status: int, message: str):
             update_status(phone_num, status + 1)
             delivery_date = date(date.today().year, int(match.group(1)), int(match.group(2)))
             deliveries = str(get_deliveries(delivery_date))
-            #NEED TO STORE ORDERED LIST of deliveries till next step
-            return f"Here are the possible deliveries: \n f{deliveries}, please reply with the number of your favourite delivery."
+            # Store delivery date
+            update_delivery_date(phone_num, delivery_date)
+            # Ask them to input driver num they want
+            
+            return f"Here are the possible deliveries: \n f{deliveries}, please reply with the number of the delivery driver you would like to book."
     
         return "Please enter a valid date in DD/MM format"    
     if status == 2:

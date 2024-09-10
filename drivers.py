@@ -17,19 +17,21 @@ def createDatabase(file: str):
     delivery_schema = """
     CREATE TABLE IF NOT EXISTS delivery (
         driverNum BIGINT,
-        weight SMALLINT NOT NULL,
-        date DATETIME NOT NULL,
-        location TEXT NOT NULL,
+        weight SMALLINT,
+        date DATETIME,
+        location TEXT,
+        confirmed BOOL NOT NULL
         PRIMARY KEY (date, driverNum)
     );
     """
     farmer_schema = """
     CREATE TABLE IF NOT EXISTS farmers(
         farmerNum BIGINT,
-        weight SMALLINT NOT NULL,
-        date DATE NOT NULL,
-        driverNum BIGINT NOT NULL,
-        location TEXT NOT NULL,
+        weight SMALLINT,
+        date DATE,
+        driverNum BIGINT,
+        location TEXT,
+        confirmed BOOL NOT NULL
         PRIMARY KEY (date, driverNum, farmerNum)
     );
     """
@@ -41,9 +43,11 @@ def createDatabase(file: str):
         PRIMARY KEY (phoneNum)
     );
     """
+
     with con:
         con.execute(farmer_schema)
         con.execute(delivery_schema)
+        con.execute(people_schema)
         con.execute(people_schema)
         # con.execute(driver_schema)
 
@@ -149,6 +153,21 @@ def get_person(phone_num: int) -> list[int, int]:
         else:
             print(res)
             return res[0][1], res[0][2]
+        
+def update_delivery_date(phone_num: int, delivery_date: date):
+    """
+    Updates it so can be refrenced when confirming delivery_date
+    """
+    con = sqlite3.connect(DATABASE)
+    with con:
+        update_query = """
+            UPDATE people
+            SET posDriverNum = ?
+            WHERE phoneNum = ?;
+        """
+        con.execute(update_query, (delivery_date, phone_num))
+        return new_status
+
 
 def getTable(file: str, tName: str):
     """
