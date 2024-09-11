@@ -35,6 +35,7 @@ def createDatabase(file: str):
         PRIMARY KEY (date, driverNum, farmerNum)
     );
     """
+    #Each person is create as an object. 
     people_schema = """
     CREATE TABLE IF NOT EXISTS people(
         phoneNum BIGINT,
@@ -57,7 +58,7 @@ def addData(file: str, type: str, date: date, weight: int, phoneNum: int, locati
     type - "driver" or "farmer" (anything else will work as long as not driver)
     date - python date object, needs day, month, year - date of delivery
     weight - weight able to carry or weight requested
-    location - str to be sent to driver or farmers toi help choose driver
+    location - str to be sent to driver or farmers to help choose driver
     driverNum - only for farmers (the driver taking their weight on that day)
     """
     con = sqlite3.connect(file)
