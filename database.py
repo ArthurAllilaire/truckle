@@ -20,39 +20,61 @@ def createDatabase(file: str):
         weight SMALLINT,
         date DATETIME,
         location TEXT,
-        confirmed BOOL NOT NULL
         PRIMARY KEY (date, driverNum)
     );
     """
-    farmer_schema = """
-    CREATE TABLE IF NOT EXISTS farmers(
+    pickup_schema = """
+    CREATE TABLE IF NOT EXISTS pickup (
         farmerNum BIGINT,
         weight SMALLINT,
         date DATE,
         driverNum BIGINT,
-        location TEXT,
-        confirmed BOOL NOT NULL
         PRIMARY KEY (date, driverNum, farmerNum)
     );
     """
+    temp_delivery_schema = """
+    CREATE TABLE IF NOT EXISTS temp_delivery (
+        driverNum BIGINT,
+        weight SMALLINT,
+        date DATE,
+        location TEXT,
+        PRIMARY KEY (driverNum)
+    );
+    """
+    temp_pickup_schema = """
+    CREATE TABLE IF NOT EXISTS temp_pickup(
+        farmerNum BIGINT,
+        weight SMALLINT,
+        date DATE,
+        driverNum BIGINT,
+        PRIMARY KEY (farmerNum)
+    );
+    """
+
     #Each person is create as an object. 
     people_schema = """
     CREATE TABLE IF NOT EXISTS people(
         phoneNum BIGINT,
+        name TEXT,
         activity SMALLINT,
         status SMALLINT,
+        is_confirmed BOOL NOT NULL DEFAULT 0,
         PRIMARY KEY (phoneNum)
     );
     """
 
     with con:
-        con.execute(farmer_schema)
         con.execute(delivery_schema)
-        con.execute(people_schema)
-        con.execute(people_schema)
-        # con.execute(driver_schema)
+        con.execute(temp_delivery_schema)
 
-def addData(file: str, type: str, date: date, weight: int, phoneNum: int, location: str, driverNum: int = 0):
+        con.execute(pickup_schema)
+        con.execute(temp_pickup_schema)
+        
+        con.execute(people_schema)
+
+
+
+def addData(file: str, type: str, date: date, weight: int, phoneNum: int, location: str = "", driverNum: int = 0):
     """
     Keyword arguments:
     type - "driver" or "farmer" (anything else will work as long as not driver)
@@ -73,10 +95,10 @@ def addData(file: str, type: str, date: date, weight: int, phoneNum: int, locati
         
         else:
             insert_query = """
-            INSERT INTO farmers(farmerNum, weight, date, location, driverNum)
-            VALUES (?, ?, ?, ?, ?);
+            INSERT INTO pickup(farmerNum, weight, date, driverNum)
+            VALUES (?, ?, ?, ?);
             """
-            con.execute(insert_query, (phoneNum, weight, date.isoformat(), location, driverNum))
+            con.execute(insert_query, (phoneNum, weight, date.isoformat(), driverNum))
             return True
 
 def get_deliveries(date: date, weight: int = 1):
@@ -97,7 +119,7 @@ def get_deliveries(date: date, weight: int = 1):
     LEFT JOIN
         farmers ON delivery.driverNum = farmers.driverNum AND delivery.date = farmers.date
     WHERE
-        delivery.date = ? 
+        delivery.date = ?
     GROUP BY
         delivery.driverNum, delivery.weight
     HAVING
@@ -109,18 +131,31 @@ def get_deliveries(date: date, weight: int = 1):
         #Field names plus rows
         return ([i[0] for i in result.description], result.fetchall())
 
-def set_activity(phone_num, new_activity: int = 0, state: int = 0) -> int:
-    """
-    Defaults state to 0
+def get_driver_deliveries(date: date, driver_num: int):
+    getDrivers = """
+    SELECT
+    delivery.driverNum,
+    delivery.weight - IFNULL(SUM(farmers.weight), 0) AS capacity,
+    delivery.location AS location
+    FROM
+        delivery
+    LEFT JOIN
+        farmers ON delivery.driverNum = farmers.driverNum AND delivery.date = farmers.date
+    WHERE
+        delivery.date = ? AND delivery.driverNum = ?
+    GROUP BY
+        delivery.driverNum, delivery.weight
+    HAVING
+        capacity >= 1;
     """
     con = sqlite3.connect(DATABASE)
     with con:
-        insert_query = """
-            INSERT INTO people(phoneNum, activity, status)
-            VALUES (?, ?, ?);
-            """
-        con.execute(insert_query, (phone_num, new_activity, state))
-        return new_activity
+        result = con.execute(getDrivers, (date.isoformat(), driver_num))
+        #Field names plus rows
+        return ([i[0] for i in result.description], result.fetchall())
+
+
+
     
 def update_activity(phone_num, new_activity: int) -> int:
     con = sqlite3.connect(DATABASE)
@@ -145,16 +180,50 @@ def update_status(phone_num, new_status: int) -> int:
         return new_status
     
 
-def get_person(phone_num: int) -> list[int, int]:
+        
+def get_activity(phone_num: int) -> int:
     con = sqlite3.connect(DATABASE)
     with con:
-        res = con.execute(f'SELECT * FROM people WHERE phoneNum = {phone_num}').fetchall()
+        res = con.execute(f'SELECT activity FROM people WHERE phoneNum = {phone_num}').fetchall()
         if (len(res) == 0):
-            return [None, None]
+            return None
         else:
-            print(res)
-            return res[0][1], res[0][2]
+            return res[0][0]
+
+def get_status(phone_num: int) -> int:
+    con = sqlite3.connect(DATABASE)
+    with con:
+        res = con.execute(f'SELECT status FROM people WHERE phoneNum = {phone_num}').fetchall()
+        if (len(res) == 0):
+            return None
+        else:
+            return res[0][0]
         
+def create_new_pickup(phone_num: int, date: date):
+    """
+    Adds to temporary pickup database a new entry
+    """
+    con = sqlite3.connect(DATABASE)
+    with con:
+        insert_query = """
+            INSERT INTO temp_pickup(farmerNum, date)
+            VALUES (?, ?);
+            """
+        con.execute(insert_query, (phone_num, date))
+
+def update_weight(phone_num: int, weight: int):
+    """
+    Adds to temporary pickup database a new entry
+    """
+    con = sqlite3.connect(DATABASE)
+    with con:
+        update_query = """
+            UPDATE temp_pickup
+            SET weight = ?
+            WHERE phoneNum = ?;
+        """
+        con.execute(update_query, (weight, phone_num))
+
 def update_delivery_date(phone_num: int, delivery_date: date):
     """
     Updates it so can be refrenced when confirming delivery_date
@@ -162,12 +231,11 @@ def update_delivery_date(phone_num: int, delivery_date: date):
     con = sqlite3.connect(DATABASE)
     with con:
         update_query = """
-            UPDATE people
-            SET posDriverNum = ?
-            WHERE phoneNum = ?;
+            UPDATE farmers
+            SET date = ?,
+            WHERE farmerNum = ?;
         """
         con.execute(update_query, (delivery_date, phone_num))
-        return new_status
 
 
 def getTable(file: str, tName: str):

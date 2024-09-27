@@ -1,23 +1,16 @@
 from typing import TypeAlias, Callable
-from drivers import *
-from vals import WELCOME_MESSAGE
+from database import *
+from vals import WELCOME_MESSAGE, OPTION_MESSAGE
 import os
 import re
 import datetime
+from delivery import Delivery, Driver, Farmer, Pickup
+from person import Person, Activity
 
-process_text = Callable[[tuple[int, int, str]], str]
+process_text = Callable[[tuple[Person, str]], str]
 
-# Have to create database for beginning script
-def dispatch_text(phone_num: int, message: str) -> str:
+def dispatch_person(person: Person, message: str) -> str:
     """
-    Activity meaning:
-    None - Hasn't contacted the number yet
-    0 - No transactions in progress
-    1 - Launch delivery (collect date)
-    2 - launch cancel
-    3 - launch upcoming
-    4 - launch find delivery (triggered by DD/MM)
-
     Status meaning for each activity:
     For 0 - No status
     For 1:
@@ -36,29 +29,36 @@ def dispatch_text(phone_num: int, message: str) -> str:
     0 - Collect trip number
     1 - Collect weight needed
     2 - Get confirmation
+
     """
-    activity, status = get_person(phone_num)
+    activity = person.activity
     activities: process_text = [
         start_activity,
         process_delivery,
         cancel_upcoming,
         see_upcoming,
-        process_pickup
+        process_pickup,
+        process_reg
     ]
 
     if activity is None:
-        set_activity(phone_num, 0)
+        person.activity, person.status = 5, 0 #always register first
         return WELCOME_MESSAGE
     
-    return activities[activity](phone_num, status, message)
+    return activities[activity](person, message)
+
+def dispatch_text(phone_num: int, message: str) -> str:
+    # Gets details from database or creates person in database
+    return dispatch_person(Person(phone_num), message)
+    
     
 
-def start_activity(phone_num: int, status: int, message: str) -> str:
-    if message.isdigit() and int(message) in range(1,5):
-        update_activity(phone_num, int(message))
-        update_status(phone_num, 0) # back to 0 as starting activity
-        return dispatch_text(phone_num, message)
-    return WELCOME_MESSAGE
+def start_activity(person: Person, message: str) -> str:
+    # print(int(message) in Activity) TODO - BETTER WAY THAN BELOW?
+    if message.isdigit() and int(message) in range(len(Activity)):
+        person.activity, person.status = int(message), 0 # starting activity
+        return dispatch_person(person, message)
+    return OPTION_MESSAGE
 
 
 
@@ -75,45 +75,79 @@ def see_upcoming(phone_num: int, status: int, message: str):
 def process_delivery(phone_num: int):
     pass
 
-def process_pickup(phone_num: int, status: int, message: str):
+def process_reg(person: Person, message: str) -> str:
     """
-    Currently making a new pickup request or just looking at future pickups
-    (NEED TO BE ABLE TO CANCEL)
+    First time user flow
 
     Status meanings
+    0 - Name input
+    1 - Name confirmation
+
+    """
+    if message == "5":
+        return "Please enter your new name:"
+    CONFIRM_NAME = f"Hey {message}! Please confirm you have correctly entered your name. Text 1 to confirm, 2 to re-enter."
+    match person.status:
+        case 0:
+            person.status += 1
+            person.name = message
+            return CONFIRM_NAME
+        case 1:
+            if message == "1":
+                person.is_confirmed = True
+                # Finished activity - go back to dispatch text to get main menu
+                person.activity = 0
+                return OPTION_MESSAGE
+            elif message == "2":
+                # Restart status to the top
+                person.status = 0
+                return "Please enter a new name:"
+            else:
+                return "Please enter 1 to confirm or 2 to cancel."
+            
+
+
+
+def process_pickup(person: Person, message: str):
+    """
+    Currently making a new pickup request
+
+        Status meanings
     0 - Collect date required
     1 - Collect trip wanted
     2 - Collect weight needed
     3 - Get confirmation
     
     """
-    if status == 0:
-        # Get date for trip
-        update_status(phone_num, status + 1)
-        return "What date do you need a pickup on? (Please input in DD/MM format)"
-    
-    if status == 1:
-        #Make sure date is correct
-        # Regular expression for matching DD/MM or D/M dates
-        pattern = r"\b(0?[1-9]|[12][0-9]|3[01])/(0?[1-9]|1[0-2])\b"
-
-        # Search for the first match
-        match = re.search(pattern, message)
-
-        # Check if a match is found and print it
-        if match:
-            update_status(phone_num, status + 1)
-            delivery_date = date(date.today().year, int(match.group(1)), int(match.group(2)))
-            deliveries = str(get_deliveries(delivery_date))
+    match person.status:
+        case 0:
+            person.status += 1
+            # Get date for trip
+            return "What date do you need a pickup on? (Please input in DD/MM format)"
+        
+        case 1:   
+            #Make sure date is correct
+            pickup_date = Person.parse_date(message)
+            if not pickup_date:
+                if message == "1":
+                    person.activity, person.state = 0, 0
+                    return dispatch_person(person, message)
+                return "Please enter a valid date in DD/MM format"
+            
+            deliveries = get_deliveries(pickup_date)
+            if not deliveries:
+                # TODO - Show other deliveries on nearby dates
+                return f"Unfortunately, there are no deliveries available for the {pickup_date}, please enter another date or 1 to cancel."
             # Store delivery date
             update_delivery_date(phone_num, delivery_date)
             # Ask them to input driver num they want
             
+            person.status += 1
             return f"Here are the possible deliveries: \n f{deliveries}, please reply with the number of the delivery driver you would like to book."
-    
-        return "Please enter a valid date in DD/MM format"    
+        
     if status == 2:
-        print("We got here!")
+        # Check number they booked has a delivery on the day?
+        get_driver_deliveries()
 
 
 
@@ -129,8 +163,17 @@ if __name__ == "__main__":
         os.remove(DATABASE)
     set_up()
     print(dispatch_text(7752715719, "hello"))
-    print(dispatch_text(2, "hello"))
-    print(dispatch_text(7752715719, "4"))
-    print(dispatch_text(2, "3"))
-    print(dispatch_text(7752715719, "1/2"))
-    print(dispatch_text(7752715719, "4"))
+    # print(dispatch_text(2, "hello"))
+    print(dispatch_text(7752715719, "Athur"))
+    # print(dispatch_text(2, "3"))
+    # print(dispatch_text(7752715719, "1/2"))
+    print(dispatch_text(7752715719, "2"))
+    print(dispatch_text(7752715719, "Arthur"))
+    print(dispatch_text(7752715719, "happy!"))
+    print(dispatch_text(7752715719, "happy!"))
+    print(dispatch_text(7752715719, "happy!"))
+    print(dispatch_text(7752715719, "1"))
+    print(dispatch_text(7752715719, "5"))
+    print(dispatch_text(7752715719, "5"))
+    print(dispatch_text(7752715719, "Arthur"))
+    print(dispatch_text(7752715719, "1"))
